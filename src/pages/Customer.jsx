@@ -7,6 +7,7 @@ import { productsApi } from "../api/products";
 import { settingsApi } from "../api/misc";
 import { visitsApi } from "../api/misc";
 import { money } from "../utils/format";
+const backendapiUrl = import.meta.env.VITE_API_URL;
 
 export default function Customer() {
   const [params] = useSearchParams();
@@ -87,7 +88,7 @@ function ProductViewer({ product, category, waNumber, onClose }) {
 
   function order() {
     const msg = encodeURIComponent(
-      `Hi! I'd like to order:\n\n${product.titleEn} (${product.titleUr})\nUnit Price: ${money(product.unitPrice)}\nCategory: ${category?.name || ""}\n Product Url= \nhttp://localhost:4000/api/products/product/${product.id}`
+      `Hi! I'd like to order:\n\n${product.titleEn} (${product.titleUr})\nUnit Price: ${money(product.unitPrice)}\nCategory: ${category?.name || ""}\n Product Url= \n${backendapiUrl}/api/products/product/${product.id}`
     );
     const url = waNumber ? `https://wa.me/${waNumber}?text=${msg}` : `https://wa.me/?text=${msg}`;
     window.open(url, "_blank");
