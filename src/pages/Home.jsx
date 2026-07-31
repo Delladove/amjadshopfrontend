@@ -6,13 +6,14 @@ import BillCard from "../components/BillCard.jsx";
 import { ordersApi } from "../api/orders";
 import { openNewBillMenu } from "../components/NewBillMenu.jsx";
 import { openQuickNewProductMenu } from "../components/QuickNewProduct.jsx";
+import LottieLoader from "../components/LottieLoader.jsx";
 
 export default function Home() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("Walkin");
 
-  const { data: orders = [] } = useQuery({ queryKey: ["orders", "billType", tab], queryFn: () => ordersApi.list({ billType: tab }) });
-  const { data: allOrders = [] } = useQuery({ queryKey: ["orders"], queryFn: () => ordersApi.list() });
+  const { data: orders = [], isPending:ordersLoading } = useQuery({ queryKey: ["orders", "billType", tab], queryFn: () => ordersApi.list({ billType: tab }) });
+  const { data: allOrders = [], isPending:allOrdersLoading } = useQuery({ queryKey: ["orders"], queryFn: () => ordersApi.list() });
 
   const recent = orders.slice(0, 5);
   const walkinCount = allOrders.filter((o) => o.billType === "Walkin").length;
@@ -40,12 +41,12 @@ export default function Home() {
           <button className={`bt-tab ${tab === "Walkin" ? "on" : ""}`} onClick={() => setTab("Walkin")}>🚶 Walk-in ({walkinCount})</button>
           <button className={`bt-tab ${tab === "Booking" ? "on" : ""}`} onClick={() => setTab("Booking")}>📅 Booking ({bookingCount})</button>
         </div>
-
-        {recent.length ? (
+        {(ordersLoading || allOrdersLoading) ? <LottieLoader/> : recent.length ? (
           recent.map((o) => <BillCard key={o.id} order={o} />)
         ) : (
           <div className="empty"><div className="big">🧾</div><p>No {tab === "Walkin" ? "walk-in" : "booking"} bills yet.<br />Tap "＋ New Bill" to create your first one.</p></div>
         )}
+        
         {orders.length > recent.length && (
           <div className="link-row" onClick={() => navigate("/admin/bills")}>View all {orders.length} bills ›</div>
         )}

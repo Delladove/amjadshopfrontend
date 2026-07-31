@@ -4,6 +4,7 @@ import Topbar from "../components/Topbar.jsx";
 import BillCard from "../components/BillCard.jsx";
 import { ordersApi } from "../api/orders";
 import { openNewBillMenu } from "../components/NewBillMenu.jsx";
+import LottieLoader from "../components/LottieLoader.jsx";
 
 const STATUS_CHIPS = [
   { id: "all", label: "All" },
@@ -19,7 +20,7 @@ export default function Bills() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
 
-  const { data: orders = [] } = useQuery({
+  const { data: orders = [], isPending:ordersLoading } = useQuery({
     queryKey: ["orders", "billType", typeTab, "status", filter === "pending" || filter === "all" ? undefined : filter, "q", search],
     queryFn: () =>
       ordersApi.list({
@@ -31,7 +32,7 @@ export default function Bills() {
 
   const list = filter === "pending" ? orders.filter((o) => o.status !== "cancelled" && o.balance > 0.001) : orders;
 
-  const { data: allOrders = [] } = useQuery({ queryKey: ["orders"], queryFn: () => ordersApi.list() });
+  const { data: allOrders = [], isPending:allOrdersLoading } = useQuery({ queryKey: ["orders"], queryFn: () => ordersApi.list() });
   const walkinCount = allOrders.filter((o) => o.billType === "Walkin").length;
   const bookingCount = allOrders.filter((o) => o.billType === "Booking").length;
   const pendingCount = allOrders.filter((o) => o.status !== "cancelled" && o.balance > 0.001).length;
@@ -62,8 +63,8 @@ export default function Bills() {
             </button>
           ))}
         </div>
-
-        {list.length ? (
+       { (ordersLoading || allOrdersLoading) ? <LottieLoader/> :
+        list.length ? (
           list.map((o) => <BillCard key={o.id} order={o} />)
         ) : (
           <div className="empty"><div className="big">🧾</div><p>No bills found.<br />Try a different search or filter, or create a new one.</p></div>

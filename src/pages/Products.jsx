@@ -6,12 +6,13 @@ import { categoriesApi } from "../api/categories";
 import { productsApi } from "../api/products";
 import { openQuickNewProductMenu } from "../components/QuickNewProduct.jsx";
 import { toast } from "../utils/format";
+import LottieLoader from "../components/LottieLoader.jsx";
 
 export default function Products() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: categoriesApi.list });
-  const { data: allProducts = [] } = useQuery({ queryKey: ["products"], queryFn: () => productsApi.list() });
+  const { data: categories = [] , isPending: categoriesLoading } = useQuery({ queryKey: ["categories"], queryFn: categoriesApi.list });
+  const { data: allProducts = [], isPending: productsLoading } = useQuery({ queryKey: ["products"], queryFn: () => productsApi.list() });
 
   const [showAddCat, setShowAddCat] = useState(false);
   const [newCatName, setNewCatName] = useState("");
@@ -49,8 +50,8 @@ export default function Products() {
             <button className="btn teal sm" disabled={!newCatName.trim() || createCat.isPending} onClick={() => createCat.mutate()}>Save</button>
           </div>
         )}
-
-        {!categories.length ? (
+        { (categoriesLoading || productsLoading) ? <LottieLoader /> :
+        (!categories.length ? (
           <div className="empty"><div className="big">📦</div><p>No categories yet.<br />Tap "＋ Add category" to get started.</p></div>
         ) : (
           categories.map((c) => {
@@ -75,7 +76,8 @@ export default function Products() {
               </div>
             );
           })
-        )}
+        ))
+        }
       </div>
     </>
   );

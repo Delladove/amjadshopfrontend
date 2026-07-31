@@ -4,11 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import Topbar from "../components/Topbar.jsx";
 import { barcodesApi } from "../api/misc";
 import { ean13SVG } from "../utils/ean13";
+import LottieLoader from "../components/LottieLoader.jsx";
 
 export default function Barcodes() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const { data: list = [] } = useQuery({ queryKey: ["barcodes", search], queryFn: () => barcodesApi.list(search) });
+  const { data: list = [] , isPending: barcodeLoading } = useQuery({ queryKey: ["barcodes", search], queryFn: () => barcodesApi.list(search) });
 
   function printOne(item) {
     const n = prompt("How many copies to print?", "1");
@@ -45,8 +46,8 @@ export default function Barcodes() {
         <span className="backlink" onClick={() => navigate("/admin/accounts")}>‹ Accounts</span>
         <div className="actions"><button className="btn brass" onClick={printAll}>🖨 Print all barcodes (A4)</button></div>
         <input type="text" className="ord-search" placeholder="🔍 Search by product name or code" value={search} onChange={(e) => setSearch(e.target.value)} />
-
-        {list.length ? list.map((item) => (
+        { barcodeLoading? <LottieLoader/>: 
+        list.length ? list.map((item) => (
           <div key={item.productId} style={{ display: "flex", alignItems: "center", gap: 12, padding: 12, marginBottom: 10, background: "var(--card)", border: "1px solid var(--line)", borderRadius: 14 }}>
             <div style={{ width: 44, height: 44, borderRadius: 10, background: "var(--paper) center/cover no-repeat", backgroundImage: item.img ? `url('${item.img}')` : "none", flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
