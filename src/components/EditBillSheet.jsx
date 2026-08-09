@@ -5,6 +5,7 @@ import { productsApi } from "../api/products";
 import { money, toast } from "../utils/format";
 import { openSheet, closeSheet } from "./Sheet.jsx";
 import { openReceiptSheet } from "./ReceiptSheet.jsx";
+import { CargoSheet } from "../pages/NewBill.jsx";
 
 export function openEditBillSheet(orderId) {
   openSheet("Edit bill", <EditBillContent orderId={orderId} />);
@@ -16,10 +17,18 @@ function EditBillContent({ orderId }) {
   const [items, setItems] = useState(null); // [{productId,titleEn,titleUr,qty,unitPrice,custom}]
   const [discount, setDiscount] = useState(0);
   const [search, setSearch] = useState("");
+  // ========cargo
+  const [cargo, setCargo] = useState(null);
+  const [cargoOpen, setCargoOpen] = useState(false);
+   function submitCargo(c) {
+    setCargo(c);
+    setCargoOpen(false);
+  }
 
   // seed local editable state once the order loads
   if (order && items === null) {
     setItems(order.items.map((i) => ({ productId: i.productId, titleEn: i.titleEn, titleUr: i.titleUr, qty: i.qty, unitPrice: i.unitPrice, custom: i.custom })));
+    setCargo(order.cargo)
     setDiscount(order.discount || 0);
   }
 
@@ -30,13 +39,13 @@ function EditBillContent({ orderId }) {
   });
 
   const subtotal = useMemo(
-    () => (items || []).reduce((sum, i) => sum + (i.custom != null && i.custom !== "" ? Number(i.custom) : i.qty * i.unitPrice), 0),
+    () => (items || []).reduce((sum, i) => sum + (i.custom != null && i.custom !== ""  ? Number(i.custom) : i.qty * i.unitPrice), 0),
     [items]
   );
   const total = Math.max(0, subtotal - (Number(discount) || 0));
 
   const saveMut = useMutation({
-    mutationFn: () => ordersApi.update(orderId, { items, discount: Number(discount) || 0 }),
+    mutationFn: () => ordersApi.update(orderId, { items, discount: Number(discount) || 0, cargo }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["order", orderId] });
       qc.invalidateQueries({ queryKey: ["orders"] });
@@ -72,8 +81,24 @@ function EditBillContent({ orderId }) {
     });
     setSearch("");
   }
+  function onSubmit(){
+    if(!items.length){
+      toast("Add atleast one item Or delete the bill");
+      return;
+    }
+    if(isNaN(Number(discount)) || Number(discount) < 0  ){
+      toast("Discount must be a positive number");
+      return;
+    }
+    if(discount > subtotal) {
+      toast("Discount cannot exceed subtotal");
+      return;
+    }      
+    saveMut.mutate();
+  }
 
-  return (
+  
+  return <>
     <div>
       <div className="filter-note" style={{ marginBottom: 12 }}>
         Adjust quantities for returns, remove items, or add new ones. Existing payments already received are kept as-is.
@@ -93,7 +118,7 @@ function EditBillContent({ orderId }) {
               }} />
               <button onClick={() => bump(idx, 1)}>＋</button>
             </div>
-            <div className="cart-line">{money(i.custom != null ? i.custom : i.qty * i.unitPrice)}</div>
+            <div className="cart-line">{money((i.custom != null) ? i.custom : i.qty * i.unitPrice)}</div>
             <button className="btn ghost sm" onClick={() => remove(idx)}>Remove</button>
           </div>
         )) : <div className="filter-note">No items left in this bill — add some below.</div>}
@@ -109,7 +134,16 @@ function EditBillContent({ orderId }) {
           </div>
         ))}
       </div>
-
+      {/* Cargo-------------------- */}
+       <button className="cargo-btn" onClick={() => setCargoOpen(true)}>
+                  <span className="cargo-ic">🚚</span>
+                  <span className="cargo-txt">
+                    <span className="cargo-main">{cargo ? "Cargo details added" : "Add cargo details"}</span>
+                    <span className="cargo-sub">{cargo ? cargo.addaName || "Tap to edit" : "Adda name, telephone, builty no., kharcha, address"}</span>
+                  </span>
+                  <span className="cargo-chev">{cargo ? "✓" : "›"}</span>
+                </button>
+              {/* -----------cargo */}
       <div className="order-total-bar" style={{ borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
         <span>Subtotal</span><span>{money(subtotal)}</span>
       </div>
@@ -118,14 +152,12 @@ function EditBillContent({ orderId }) {
         <input type="number" min="0" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0" />
       </div>
       <div className="order-total-bar"><span>New total</span><span>{money(total)}</span></div>
-      <div className="filter-note">Already paid: {money(order.paid)}</div>
+      <div className="filter-note" style={{ marginBottom: 12 }}>Already paid: {money(order.paid)}</div>
 
-      <button className="btn teal" disabled={saveMut.isPending} onClick={() => {
-        if (!items.length && !confirm("This bill will have no items left. Continue?")) return;
-        saveMut.mutate();
-      }}>
+      <button className="btn teal" disabled={saveMut.isPending} onClick={() => onSubmit()}>
         {saveMut.isPending ? "Saving…" : "Save changes"}
       </button>
     </div>
-  );
+    {cargoOpen && <CargoSheet initial={cargo} onSave={submitCargo} onClose={() => setCargoOpen(false)} />}
+  </>
 }

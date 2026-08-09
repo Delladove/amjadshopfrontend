@@ -3,10 +3,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Topbar from "../components/Topbar.jsx";
 import { ordersApi } from "../api/orders";
 import { BILL_STATUS_INFO, toast } from "../utils/format";
+import { useAuth } from "../context/AuthProvider.jsx"
+import { loginApi } from "../api/misc.js";
 
 const POLL_MS = Number(import.meta.env.VITE_WAREHOUSE_POLL_MS) || 4000;
 
 export default function Warehouse() {
+  const { data } = useQuery({
+    queryKey: ["warehouse"],
+    queryFn: loginApi.getwarehouse,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
+  });
+  const warehouseDisabled = data?.warehouseDisabled;
+
   const qc = useQueryClient();
   const [tab, setTab] = useState("Walkin");
   const [openOrderId, setOpenOrderId] = useState(null);
@@ -31,7 +41,7 @@ export default function Warehouse() {
   });
 
   const list = orders
-    .filter((o) => o.status !== "cancelled" && o.status !== "delivered")
+    .filter((o) => o.status !== "cancelled" && o.status !== "delivered" && !o.customer.endsWith("Whatsapp_user"))
     .sort((a, b) => {
       const an = a.status === "new" ? 0 : 1, bn = b.status === "new" ? 0 : 1;
       if (an !== bn) return an - bn;
@@ -40,6 +50,21 @@ export default function Warehouse() {
 
   const walkinNew = orders.filter((o) => o.status === "new").length; // per current tab
   const openOrder = openOrderId ? orders.find((o) => o.id === openOrderId) : null;
+
+   if (warehouseDisabled) {
+      return <>
+        <div id="app">
+          <Topbar title="Warehouse" sub="Pack orders as they come in" />
+          <div className="screen">
+            <div style={{display:"flex", justifyContent: "center" , alignItems: "center"}}>
+
+            <p className="warehouse-disable-msg">Warehouse is Disabled by Admin</p>
+            </div>
+          </div>
+        </div>
+      </>
+    }
+
 
   if (openOrder) {
     const idx = Math.min(itemIdx, openOrder.items.length - 1);
@@ -52,6 +77,7 @@ export default function Warehouse() {
       });
     }
 
+   
     return (
       <div id="app">
         <Topbar title="Warehouse" sub={`Bill No. ${openOrder.id.replace("ord", "")} · ${openOrder.billType}`} />

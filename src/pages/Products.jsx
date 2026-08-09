@@ -7,6 +7,10 @@ import { productsApi } from "../api/products";
 import { openQuickNewProductMenu } from "../components/QuickNewProduct.jsx";
 import { toast } from "../utils/format";
 import LottieLoader from "../components/LottieLoader.jsx";
+// okokaok
+import { useForm } from "react-hook-form";
+import { yupResolver } from "@hookform/resolvers/yup";
+import { categorySchema } from "../validations/categorySchema.js";
 
 export default function Products() {
   const navigate = useNavigate();
@@ -15,14 +19,23 @@ export default function Products() {
   const { data: allProducts = [], isPending: productsLoading } = useQuery({ queryKey: ["products"], queryFn: () => productsApi.list() });
 
   const [showAddCat, setShowAddCat] = useState(false);
-  const [newCatName, setNewCatName] = useState("");
+ 
+  // validation for category name 
+   const { register, handleSubmit, reset, formState: { errors } } = useForm({
+    resolver: yupResolver(categorySchema),
+  });
+  
+  const onSubmit = (data) => {
+    createCat.mutate(data);
+  };
+  // ==========================
 
   const createCat = useMutation({
-    mutationFn: () => categoriesApi.create(newCatName.trim()),
+    mutationFn: (data) => categoriesApi.create(data.newCatName),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
       setShowAddCat(false);
-      setNewCatName("");
+      reset();
       toast("Category created");
     },
     onError: (e) => {toast(e.message);
@@ -31,7 +44,7 @@ export default function Products() {
   });
 
   const totalProducts = allProducts.length;
-
+  
   return (
     <>
       <Topbar title="Products" sub={`${totalProducts} product${totalProducts !== 1 ? "s" : ""} across ${categories.length} categor${categories.length !== 1 ? "ies" : "y"}`} />
@@ -42,13 +55,16 @@ export default function Products() {
         </div>
 
         {showAddCat && (
-          <div className="field" style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 16 }}>
+        <form  className="field" onSubmit={handleSubmit(onSubmit)} >
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
             <div style={{ flex: 1 }}>
               <label>New category name</label>
-              <input type="text" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="e.g. Party Masks" autoFocus />
+              <input type="text" { ...register("newCatName") } placeholder="e.g. Party Masks" autoFocus />
             </div>
-            <button className="btn teal sm" disabled={!newCatName.trim() || createCat.isPending} onClick={() => createCat.mutate()}>Save</button>
+            <button className="btn teal sm" type="submit" disabled={createCat.isPending} >Save</button>
           </div>
+           {errors.newCatName && <p className="error">{errors.newCatName.message}</p>}
+        </form>
         )}
         { (categoriesLoading || productsLoading) ? <LottieLoader /> :
         (!categories.length ? (

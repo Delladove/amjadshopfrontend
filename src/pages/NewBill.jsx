@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Topbar from "../components/Topbar.jsx";
@@ -8,6 +8,12 @@ import { ordersApi } from "../api/orders";
 import { money, PAYMENT_METHODS, toast } from "../utils/format";
 import { uploadFile } from "../api/client";
 import BarcodeScanner from "../components/BarcodeScanner.jsx";
+
+// ================
+import { useForm } from "react-hook-form";
+import { yupResolver } from "@hookform/resolvers/yup";
+import { orderSchema } from "../validations/orderSchema.js"
+import { cargoSchema } from "../validations/cargoSchema.js"
 
 export default function NewBill() {
   const [params] = useSearchParams();
@@ -24,17 +30,29 @@ export default function NewBill() {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [cargoOpen, setCargoOpen] = useState(false);
+  const [expanded, setExpanded] = useState(null);
 
   // checkout fields
-  const [discount, setDiscount] = useState(0);
-  const [customer, setCustomer] = useState("");
-  const [phone, setPhone] = useState("");
-  const [city, setCity] = useState("");
+  const {
+    register,
+    handleSubmit,
+    watch,
+    setValue,
+    setError,
+    formState: { errors },
+  } = useForm({
+    resolver: yupResolver(orderSchema),
+    defaultValues: {
+      discount: 0,
+      paidNow: 0,
+    },
+  });
+  const discount = watch("discount");
+  const paidNow = watch("paidNow");
+
+
   const [cargo, setCargo] = useState(null);
-  const [payment, setPayment] = useState("");
-  const [paidNow, setPaidNow] = useState("");
   const [paidTouched, setPaidTouched] = useState(false);
-  const [notes, setNotes] = useState("");
   const [receiptImg, setReceiptImg] = useState(null);
 
   const complete = products.filter((p) => p.titleEn && p.titleUr && p.unitPrice > 0);
@@ -60,15 +78,30 @@ export default function NewBill() {
   const total = Math.max(0, subtotal - (Number(discount) || 0));
   const effectivePaidNow = paidTouched ? Number(paidNow) || 0 : total;
   const previewBalance = Math.max(0, total - effectivePaidNow);
+  useEffect(() => {
+    if (!paidTouched) {
+      setValue("paidNow", total);
+    }
+  }, [total, paidTouched, setValue]);
 
   function toggleProduct(id) {
+    // console.log("toggle Product", id, cart[id]);
     setCart((prev) => (prev[id] ? prev : { ...prev, [id]: 1 }));
+    setExpanded(id);
   }
   function bump(id, delta) {
     setCart((prev) => {
       const n = (prev[id] || 0) + delta;
+      console.log("all prev", prev);
       const next = { ...prev };
-      if (n < 1) delete next[id];
+      console.log("all", next);
+      if (n < 1) {
+        delete next[id];
+        if (expanded == id)
+          setExpanded(null);
+        if (cartCount == 1)
+          setCheckoutOpen(false);
+      }
       else next[id] = n;
       return next;
     });
@@ -85,17 +118,32 @@ export default function NewBill() {
   }
 
   const createMut = useMutation({
-    mutationFn: () =>
+    mutationFn: (data) => {
+      // { console.log(`Data created with`, {
+      //           billType,
+      //     ...data,  
+      //     cargo,
+      //     discount: Number(discount) || 0,
+      //     paidNow: paidTouched ? Number(paidNow) || 0 : total,
+      //     paymentReceiptImg: receiptImg,
+      //     items: Object.entries(cart).map(([id, qty]) => {
+      //       const p = products.find((x) => x.id === id);
+      //       return {
+      //         productId: id,
+      //         titleEn: p.titleEn,
+      //         titleUr: p.titleUr,
+      //         qty,
+      //         unitPrice: p.unitPrice,
+      //         custom: customPrices[id] != null && customPrices[id] !== "" ? Number(customPrices[id]) : null,
+      //       };
+      //     }),
+      // })
       ordersApi.create({
         billType,
-        customer,
-        phone,
-        city,
-        payment,
-        notes,
+        ...data,
         cargo,
-        discount: Number(discount) || 0,
-        paidNow: paidTouched ? Number(paidNow) || 0 : total,
+        discount: Number(data.discount),
+        paidNow: paidTouched ? Number(data.paidNow) : total,
         paymentReceiptImg: receiptImg,
         items: Object.entries(cart).map(([id, qty]) => {
           const p = products.find((x) => x.id === id);
@@ -108,7 +156,8 @@ export default function NewBill() {
             custom: customPrices[id] != null && customPrices[id] !== "" ? Number(customPrices[id]) : null,
           };
         }),
-      }),
+      })
+    },
     onSuccess: (order) => {
       qc.invalidateQueries({ queryKey: ["orders"] });
       toast("Order saved");
@@ -133,7 +182,29 @@ export default function NewBill() {
     setCargo(c);
     setCargoOpen(false);
   }
+  const submitOrder = (data) => {
+    console.log("Submitting order with data:", data);
 
+    if (data.discount > subtotal) {
+      setError("discount", {
+        type: "manual",
+        message: "Discount cannot exceed subtotal",
+      });
+      toast("Discount cannot exceed subtotal");
+      return;
+    }
+
+    if ((Number(data.paidNow) || 0) > total) {
+      setError("paidNow", {
+        type: "manual",
+        message: "Amount received cannot exceed total",
+      });
+      toast("Amount received cannot exceed total");
+      return;
+    }
+    createMut.mutate(data);
+  };
+  const payment = watch("payment");
   const showReceiptAttach = payment && payment !== "Cash";
 
   return (
@@ -142,7 +213,7 @@ export default function NewBill() {
       <div className="screen" style={{ paddingBottom: 110 }}>
         <span className="backlink" onClick={() => navigate("/admin/bills")}>‹ Bills</span>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <input
             type="text"
             className="ord-search"
@@ -151,7 +222,7 @@ export default function NewBill() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <button className="btn brass" style={{ flex: "0 0 auto", padding: "0 16px" }} onClick={() => setScannerOpen(true)}>📷 Scan</button>
+          <button className="btn brass" style={{ flex: "0 0 auto", padding: "10px" }} onClick={() => setScannerOpen(true)}>📷 Scan</button>
         </div>
         <div className="eyebrow" style={{ marginTop: 6 }}>Tap a product to add it, or scan its barcode · enter quantity in pieces</div>
 
@@ -163,9 +234,12 @@ export default function NewBill() {
                 <ProductPickTile
                   key={p.id}
                   product={p}
+                  ext={expanded == p.id}
                   qty={cart[p.id] || 0}
                   onTap={() => toggleProduct(p.id)}
                   onBump={(d) => bump(p.id, d)}
+                  setCart={setCart}
+                  setExpanded={setExpanded}
                 />
               ))}
             </div>
@@ -205,10 +279,7 @@ export default function NewBill() {
                         </div>
                         <div className="stepper">
                           <button onClick={() => bump(id, -1)}>−</button>
-                          <input type="number" value={qty} onChange={(e) => {
-                            const n = parseInt(e.target.value, 10);
-                            if (!isNaN(n) && n >= 1) setCart((prev) => ({ ...prev, [id]: n }));
-                          }} />
+                          <input type="number" value={qty} disabled />
                           <button onClick={() => bump(id, 1)}>＋</button>
                         </div>
                         <div className="cart-line">{money(lineTotal(p))}</div>
@@ -225,13 +296,18 @@ export default function NewBill() {
                 </div>
                 <div className="field" style={{ marginTop: 10 }}>
                   <label>Discount <span className="hint">(optional · flat amount off the bill)</span></label>
-                  <input type="number" min="0" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0" />
+                  <input type="number" min="0" {...register("discount")} placeholder="0" />
+                  {errors.discount && <p className="error">{errors.discount.message}</p>}
                 </div>
                 <div className="order-total-bar"><span>Total</span><span>{money(total)}</span></div>
                 <div className="field" style={{ marginTop: 2 }}>
                   <label>Amount received now <span className="hint">(editable — leave as full total, or enter a partial payment)</span></label>
-                  <input type="number" min="0" value={paidTouched ? paidNow : total}
-                    onChange={(e) => { setPaidTouched(true); setPaidNow(e.target.value); }} placeholder="0" />
+                  <input type="number"
+                    {...register("paidNow", {
+                      onChange: () => setPaidTouched(true),
+                    })}
+                    placeholder="50" />
+                  {errors.paidNow && <p className="error">{errors.paidNow.message}</p>}
                 </div>
                 <div className={`order-total-bar balance-row ${previewBalance > 0.001 ? "due" : "clear"}`}>
                   <span>Balance</span><span>{money(previewBalance)}</span>
@@ -242,17 +318,22 @@ export default function NewBill() {
                 <div className="co-section-title">👤 Customer details</div>
                 <div className="field">
                   <label>Customer name</label>
-                  <input type="text" value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="e.g. Ahmed Traders" />
+                  <input type="text" {...register("customer")} placeholder="e.g. Ahmed Traders" />
+                  {errors.customer && <p className="error">{errors.customer.message}</p>}
                 </div>
-                <div className="field two">
-                  <div>
-                    <label>Phone <span className="hint">(optional)</span></label>
-                    <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Optional" />
+                <div className="field">
+                  <div className="two">
+                    <div>
+                      <label>Phone </label>
+                      <input type="tel" {...register("phone")} placeholder="03001233907" />
+                    </div>
+                    <div>
+                      <label>City </label>
+                      <input type="text" {...register("city")} placeholder="e.g. Lahore" />
+                    </div>
                   </div>
-                  <div>
-                    <label>City <span className="hint">(optional)</span></label>
-                    <input type="text" value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Lahore" />
-                  </div>
+                  {errors.phone && <p className="error">{errors.phone.message}</p>}
+                  {errors.city && <p className="error">{errors.city.message}</p>}
                 </div>
                 <button className="cargo-btn" onClick={() => setCargoOpen(true)}>
                   <span className="cargo-ic">🚚</span>
@@ -271,11 +352,12 @@ export default function NewBill() {
                   <div className="pay-opts">
                     {PAYMENT_METHODS.map((m) => (
                       <label className="pay-opt" key={m}>
-                        <input type="radio" name="pay" checked={payment === m} onChange={() => setPayment(m)} />
+                        <input type="radio" name="pay" value={m} {...register("payment")} />
                         <span>{m}</span>
                       </label>
                     ))}
                   </div>
+                  {errors.payment && <p className="error">{errors.payment.message}</p>}
                 </div>
                 {showReceiptAttach && (
                   <div className="receipt-attach" style={{ marginTop: 10, padding: "12px 14px", border: "1px dashed var(--line)", borderRadius: 12, background: "var(--paper)" }}>
@@ -294,13 +376,16 @@ export default function NewBill() {
 
               <div className="co-section">
                 <div className="co-section-title">📝 Notes</div>
-                <textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. 2 pcs short on Item 4, to send later" />
+                <div className="field">
+                  <textarea rows={3} style={{ resize: "none" }} {...register("notes")} placeholder="e.g. 2 pcs short on Item 4, to send later" />
+                  {errors.notes && <p className="error">{errors.notes.message}</p>}
+                </div>
               </div>
 
               <button
                 className="btn teal"
-                disabled={createMut.isPending || !customer.trim() || !payment}
-                onClick={() => createMut.mutate()}
+                disabled={createMut.isPending}
+                onClick={handleSubmit(submitOrder)}
               >
                 {createMut.isPending ? "Saving…" : "Complete order & make receipt"}
               </button>
@@ -314,19 +399,42 @@ export default function NewBill() {
   );
 }
 
-function ProductPickTile({ product: p, qty, onTap, onBump }) {
+function ProductPickTile({ product: p, ext, qty, onTap, onBump, setCart, setExpanded }) {
+  const [temporary, setTemporary] = useState(String(qty || 1));
+
+  useEffect(() => {
+    setTemporary(String(qty || 1));
+  }, [qty]);
   return (
     <div className={`prod ${qty ? "selected" : ""}`} onClick={onTap}>
       <div className="img" style={{ backgroundImage: p.img ? `url('${p.img}')` : "none" }}>
-        {qty > 0 && (
-          <div style={{ position: "absolute", inset: 0, background: "linear-gradient(135deg,rgba(230,35,30,.18),rgba(183,20,20,.22))", display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 8 }}>
-            <div style={{ background: "#fff", borderRadius: 10, padding: "4px 10px", display: "flex", alignItems: "center", gap: 8 }} onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => onBump(-1)} style={{ fontWeight: 800 }}>−</button>
-              <b>{qty}</b>
-              <button onClick={() => onBump(1)} style={{ fontWeight: 800 }}>＋</button>
+        {
+          ext ? (
+            <div className="ord-pick-check">
+              <div className="ord-sets-lbl">QUANTITY</div>
+              <div className="ord-stepper">
+                <button onClick={(e) => { e.stopPropagation(); onBump(-1) }}>−</button>
+                <input className="ord-sets-num" type="number" value={temporary} onChange={(e) => {
+                  console.log("change", e.target.value);
+                  e.stopPropagation();
+                  setTemporary(e.target.value);
+                }} onBlur={() => {
+                  console.log("blur", temporary);
+                  const n = parseInt(temporary, 10);
+                  if (!isNaN(n) && n >= 1) {
+                    setCart((prev) => ({ ...prev, [p.id]: n }));
+                  } else {
+                    setCart((prev) => ({ ...prev, [p.id]: 1 }));
+                    setTemporary(1);
+                  }
+                }} />
+                <button onClick={(e) => { e.stopPropagation(); onBump(1); }}>＋</button>
+              </div>
+              <div className="ord-pcs-lbl" >{qty}pcs</div>
+              <button className="ord-done-btn" onClick={(e) => { console.log("click"); e.stopPropagation(); setExpanded(null) }} >Done</button>
             </div>
-          </div>
-        )}
+          ) :
+            (qty > 0 && <div className="ord-added"><span className="ord-added-badge">{qty} pcs</span></div>)}
       </div>
       <div className="body">
         <div className="t-en">{p.titleEn}</div>
@@ -336,17 +444,43 @@ function ProductPickTile({ product: p, qty, onTap, onBump }) {
   );
 }
 
-function CargoSheet({ initial, onSave, onClose }) {
-  const [addaName, setAddaName] = useState(initial?.addaName || "");
-  const [contact, setContact] = useState(initial?.contact || "");
-  const [builtyNo, setBuiltyNo] = useState(initial?.builtyNo || "");
-  const [addaKharcha, setAddaKharcha] = useState(initial?.addaKharcha || "");
-  const [address, setAddress] = useState(initial?.address || "");
+export function CargoSheet({ initial, onSave, onClose }) {
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm({
+    resolver: yupResolver(cargoSchema),
+    defaultValues: {
+      addaName: initial?.addaName || "",
+      contact: initial?.contact || "",
+      builtyNo: initial?.builtyNo || "",
+      addaKharcha: initial?.addaKharcha || "",
+      address: initial?.address || "",
+    },
+  });
+  useEffect(() => {
+    reset({
+      addaName: initial?.addaName || "",
+      contact: initial?.contact || "",
+      builtyNo: initial?.builtyNo || "",
+      addaKharcha: initial?.addaKharcha || "",
+      address: initial?.address || "",
+    });
+  }, [initial, reset]);
 
-  function save() {
-    if (!addaName && !contact && !builtyNo && !addaKharcha && !address) onSave(null);
-    else onSave({ addaName, contact, builtyNo, addaKharcha, address });
-  }
+  const save = (data) => {
+    const empty = Object.values(data).every(
+      (v) => v === "" || v == null
+    );
+
+    if (empty) {
+      onSave(null);
+    } else {
+      onSave(data);
+    }
+  };
 
   return (
     <div className="sheet-bg open" onClick={onClose}>
@@ -354,14 +488,14 @@ function CargoSheet({ initial, onSave, onClose }) {
         <div className="sheet-head"><h2>Cargo / builty details</h2><button className="x" onClick={onClose}>×</button></div>
         <div className="sheet-body">
           <div className="filter-note" style={{ marginBottom: 14 }}>Saved with the order and printed on the receipt.</div>
-          <div className="field"><label>Adda name</label><input type="text" value={addaName} onChange={(e) => setAddaName(e.target.value)} placeholder="e.g. Al-Makkah Goods" /></div>
-          <div className="field"><label>Telephone</label><input type="tel" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="e.g. 03001234567" /></div>
-          <div className="field"><label>Builty number</label><input type="text" value={builtyNo} onChange={(e) => setBuiltyNo(e.target.value)} placeholder="e.g. B-4521" /></div>
-          <div className="field"><label>Adda kharcha <span className="hint">(amount)</span></label><input type="number" min="0" value={addaKharcha} onChange={(e) => setAddaKharcha(e.target.value)} placeholder="e.g. 100" /></div>
-          <div className="field"><label>Address</label><input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="e.g. Truck Adda, Band Road" /></div>
+          <div className="field"><label>Adda name</label><input type="text" {...register("addaName")} placeholder="e.g. Al-Makkah Goods" />{errors.addaName && <p className="error">{errors.addaName.message}</p>}</div>
+          <div className="field"><label>Telephone</label><input type="tel" {...register("contact")} placeholder="e.g. 03001234567" />{errors.contact && <p className="error">{errors.contact.message}</p>}</div>
+          <div className="field"><label>Builty number</label><input type="text" {...register("builtyNo")} placeholder="e.g. B-4521" />{errors.builtyNo && <p className="error">{errors.builtyNo.message}</p>}</div>
+          <div className="field"><label>Adda kharcha <span className="hint">(amount)</span></label><input type="number" min="0" {...register("addaKharcha")} placeholder="e.g. 100" />{errors.addaKharcha && <p className="error">{errors.addaKharcha.message}</p>}</div>
+          <div className="field"><label>Address</label><input type="text" {...register("address")} placeholder="e.g. Truck Adda, Band Road" />{errors.address && <p className="error">{errors.address.message}</p>}</div>
           <div style={{ display: "flex", gap: 10 }}>
             {initial && <button className="btn ghost" style={{ flex: 1 }} onClick={() => onSave(null)}>Remove</button>}
-            <button className="btn teal" style={{ flex: 2 }} onClick={save}>Save cargo details</button>
+            <button className="btn teal" style={{ flex: 2 }} onClick={handleSubmit(save)}>Save cargo details</button>
           </div>
         </div>
       </div>

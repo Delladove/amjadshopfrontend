@@ -3,6 +3,7 @@ const API_URL = import.meta.env.VITE_API_URL;
 async function request(path, options = {}) {
   // console.log("API env working",API_URL);
   const res = await fetch(`${API_URL}/api${path}`, {
+    credentials: "include", //The browser will save and attach the cookie
     headers: { "Content-Type": "application/json" },
     ...options,
   });
@@ -10,7 +11,7 @@ async function request(path, options = {}) {
     let message = `Request failed (${res.status})`;
     try {
       const body = await res.json();
-      message = body.error || message;
+      message = body.error || body.message || message;
     } catch {
       /* ignore parse errors on non-JSON error bodies */
     }

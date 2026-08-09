@@ -7,13 +7,14 @@ import { productsApi } from "../api/products";
 import { settingsApi } from "../api/misc";
 import { visitsApi } from "../api/misc";
 import { money } from "../utils/format";
+import LottieLoader from "../components/LottieLoader.jsx";
 const backendapiUrl = import.meta.env.VITE_API_URL;
 
 export default function Customer() {
   const [params] = useSearchParams();
   const entrySlug = params.get("cat");
-  const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: categoriesApi.list });
-  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: () => productsApi.list() });
+  const { data: categories = [], isPending: categoryPending } = useQuery({ queryKey: ["categories"], queryFn: categoriesApi.list });
+  const { data: products = [] , isPending: productPending} = useQuery({ queryKey: ["products"], queryFn: () => productsApi.list() });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: settingsApi.get });
   const [viewerProduct, setViewerProduct] = useState(null);
 
@@ -35,17 +36,10 @@ export default function Customer() {
 
   return (
     <div id="app">
-      {/* <Topbar title="Amjad Magic Center" sub="Customer view" /> */}
-      <div className="topbar">
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <img src="hat-logo.png" alt="Amjad Magic Center" style={{ height: 45 }} />
-          <div style={{ flex: 1 }}>
-            <h1>Amjad Magic Center</h1>
-            <div className="sub">Customer view</div>
-          </div>
-        </div>
-      </div>
-      {usable.length ? (
+      <Topbar title="Amjad Magic Center" sub="Customer view" />
+  
+      {(categoryPending || productPending)? <LottieLoader/> :
+      (usable.length ? (
         usable.map((cat) => {
           const ps = products.filter((p) => p.catId === cat.id && p.titleEn && p.titleUr && p.unitPrice && p.shared > 0);
           return (
@@ -70,10 +64,9 @@ export default function Customer() {
               </div>
             </div>
           );
-        })
-      ) : (
+        })) : (
         <div className="screen"><div className="empty"><div className="big">🛍️</div><p>No products available yet.</p></div></div>
-      )}
+      ))}
 
       {viewerProduct && (
         <ProductViewer product={viewerProduct} category={categories.find((c) => c.id === viewerProduct.catId)} waNumber={settings?.waNumber} onClose={() => setViewerProduct(null)} />
@@ -88,7 +81,7 @@ function ProductViewer({ product, category, waNumber, onClose }) {
 
   function order() {
     const msg = encodeURIComponent(
-      `Hi! I'd like to order:\n\n${product.titleEn} (${product.titleUr})\nUnit Price: ${money(product.unitPrice)}\nCategory: ${category?.name || ""}\n Product Url= \n${backendapiUrl}/api/products/product/${product.id}`
+      `${backendapiUrl}/api/products/product/${product.id}\n آپ کو کتنی مقدار چاہیے؟ \n\n-`
     );
     const url = waNumber ? `https://wa.me/${waNumber}?text=${msg}` : `https://wa.me/?text=${msg}`;
     window.open(url, "_blank");

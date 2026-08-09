@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ordersApi } from "../api/orders";
 import { settingsApi } from "../api/misc";
@@ -13,6 +13,7 @@ export function openReceiptSheet(orderId) {
 
 function ReceiptContent({ orderId }) {
   const qc = useQueryClient();
+  const [wa_btn, setwa_btn] = useState(false);
   const { data: order, isLoading } = useQuery({ queryKey: ["order", orderId], queryFn: () => ordersApi.get(orderId) });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: settingsApi.get });
 
@@ -20,6 +21,26 @@ function ReceiptContent({ orderId }) {
     qc.invalidateQueries({ queryKey: ["order", orderId] });
     qc.invalidateQueries({ queryKey: ["orders"] });
   };
+  useEffect(() => {
+    if (order?.customer.endsWith("user")) {
+      setwa_btn(true);
+    }
+  }, [order]);
+
+
+  const saveMut = useMutation({
+    mutationFn: (data) => {console.log(data); ordersApi.update(orderId, { customer:data})},
+    onSuccess: () => {
+      
+      setwa_btn(false);
+      qc.invalidateQueries({ queryKey: ["order", orderId] });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      toast("Order Confirmed")
+      // toast("Bill updated");
+      // openReceiptSheet(orderId);
+    },
+    onError: (e) => toast(e.message),
+  });
 
   const statusMut = useMutation({
     mutationFn: (status) => ordersApi.setStatus(orderId, status),
@@ -114,7 +135,11 @@ function ReceiptContent({ orderId }) {
       </div>
 
       {order.notes && (
-        <div className="filter-note" style={{ marginTop: 12 }}>📋 Internal notes: {order.notes}</div>
+        <div className="filter-note" style={{ marginTop: 12 }}>📋 Internal notes:
+          {((order.notes).split("\n---\n")).map((i, ind) => (
+            <p key={ind}>{i}</p>
+          ))
+          }</div>
       )}
 
       {!cancelled && (
@@ -135,6 +160,7 @@ function ReceiptContent({ orderId }) {
                 </button>
               );
             })}
+            {wa_btn && <button className="status-chip-wa" onClick={() =>{ saveMut.mutate( order.customer.replace("user",""))} }>Confirm Whatsapp Order</button>}
           </div>
         </div>
       )}

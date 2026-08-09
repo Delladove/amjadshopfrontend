@@ -27,6 +27,9 @@ export default function BillCard({ order }) {
         ) : (
           <span className="pill shared">Paid</span>
         )}
+        {(order.customer).endsWith("Whatsapp_user") &&
+          <span className="pill whatsapp">Whatsapp</span>
+        }
       </div>
       <div className="arrow">›</div>
     </div>

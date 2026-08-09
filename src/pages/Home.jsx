@@ -12,8 +12,8 @@ export default function Home() {
   const navigate = useNavigate();
   const [tab, setTab] = useState("Walkin");
 
-  const { data: orders = [], isPending:ordersLoading } = useQuery({ queryKey: ["orders", "billType", tab], queryFn: () => ordersApi.list({ billType: tab }) });
-  const { data: allOrders = [], isPending:allOrdersLoading } = useQuery({ queryKey: ["orders"], queryFn: () => ordersApi.list() });
+  const { data: orders = [], isPending:ordersLoading } = useQuery({ queryKey: ["orders", "billType", tab], queryFn: () => ordersApi.list({ billType: tab }) , refetchInterval: 3000, refetchIntervalInBackground: false, });
+  const { data: allOrders = [], isPending:allOrdersLoading } = useQuery({ queryKey: ["orders"], queryFn: () => ordersApi.list() , refetchInterval: 3000, refetchIntervalInBackground: false,});
 
   const recent = orders.slice(0, 5);
   const walkinCount = allOrders.filter((o) => o.billType === "Walkin").length;

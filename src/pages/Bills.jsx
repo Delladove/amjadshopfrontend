@@ -28,6 +28,8 @@ export default function Bills() {
         ...(filter !== "all" && filter !== "pending" ? { status: filter } : {}),
         ...(search.trim() ? { q: search.trim() } : {}),
       }),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 
   const list = filter === "pending" ? orders.filter((o) => o.status !== "cancelled" && o.balance > 0.001) : orders;
