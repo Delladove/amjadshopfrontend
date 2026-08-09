@@ -343,8 +343,8 @@ a{color:inherit}
 
 .spinner {
   /* 1. Shape and Style */
-  width: 100px;
-  height: 100px;
+  width: 80px;
+  height: 80px;
 
   /* 2. Infinite Rotation */
   animation: spin 1.3s linear infinite;
