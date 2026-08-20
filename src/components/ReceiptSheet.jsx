@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { ordersApi } from "../api/orders";
 import { settingsApi } from "../api/misc";
-import { money, dateLabel, billNo, BILL_STATUS_INFO, PAYMENT_METHODS, toast } from "../utils/format";
+import { money, dateLabel, BILL_STATUS_INFO, PAYMENT_METHODS, toast } from "../utils/format";
 import Sheet, { openSheet, closeSheet } from "./Sheet.jsx";
 import PaymentForm from "./PaymentForm.jsx";
 import { openEditBillSheet } from "./EditBillSheet.jsx";
@@ -15,32 +15,49 @@ function ReceiptContent({ orderId }) {
   const qc = useQueryClient();
   const [wa_btn, setwa_btn] = useState(false);
   const { data: order, isLoading } = useQuery({ queryKey: ["order", orderId], queryFn: () => ordersApi.get(orderId) });
+  // console.log("order in receipt sheet", order);
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: settingsApi.get });
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["order", orderId] });
     qc.invalidateQueries({ queryKey: ["orders"] });
   };
-  useEffect(() => {
-    if (order?.customer.endsWith("user")) {
-      setwa_btn(true);
-    }
-  }, [order]);
+  // useEffect(() => {
+  //   if (order?.customer.endsWith("user")) {
+  //     setwa_btn(true);
+  //   }
+  // }, [order]);
 
+  const deliverPackedMut = useMutation({
+    mutationFn: (yesCreateNew) =>
+      ordersApi.deliverPacked(orderId, yesCreateNew),
 
-  const saveMut = useMutation({
-    mutationFn: (data) => {console.log(data); ordersApi.update(orderId, { customer:data})},
-    onSuccess: () => {
-      
-      setwa_btn(false);
-      qc.invalidateQueries({ queryKey: ["order", orderId] });
-      qc.invalidateQueries({ queryKey: ["orders"] });
-      toast("Order Confirmed")
-      // toast("Bill updated");
-      // openReceiptSheet(orderId);
+    onSuccess: (data) => {
+      closeSheet();
+      console.log(data);
+      refresh();
+
+      openReceiptSheet(data.deliveredOrder.id);
     },
-    onError: (e) => toast(e.message),
+
+    onError: (e) => {
+      toast(e.message || "Failed to deliver packed items");
+    }
   });
+
+  // const saveMut = useMutation({
+  //   mutationFn: (data) => {  ordersApi.update(orderId, { customer: data }) },
+  //   onSuccess: () => {
+
+  //     setwa_btn(false);
+  //     qc.invalidateQueries({ queryKey: ["order", orderId] });
+  //     qc.invalidateQueries({ queryKey: ["orders"] });
+  //     toast("Order Confirmed")
+  //     // toast("Bill updated");
+  //     // openReceiptSheet(orderId);
+  //   },
+  //   onError: (e) => toast(e.message),
+  // });
 
   const statusMut = useMutation({
     mutationFn: (status) => ordersApi.setStatus(orderId, status),
@@ -56,6 +73,7 @@ function ReceiptContent({ orderId }) {
 
   const business = settings?.business || { name: "Amjad Magic Center", address: "Shah Alam Market Lahore", phone: "03008838824" };
   const cancelled = order.status === "cancelled";
+  const totalPackedCost = order.items.reduce((accumulator, item) => accumulator + (item.packedQty * item.unitPrice), 0);
 
   return (
     <div>
@@ -130,8 +148,28 @@ function ReceiptContent({ orderId }) {
           </div>
         )}
 
+        {order.status === "packing" && <>
+          <div className="r-cargo-head r-packed-head">Packed Items</div>
+          <table className="r-table r-packed">
+            <thead><tr><th>Item</th><th>Qty</th><th>Unit</th><th>Amount</th></tr></thead>
+            <tbody>
+              {order.items.filter((i) => i.packedQty > 0).map((i) => (
+                <tr key={i.id}>
+                  <td className="r-name">{i.titleEn}<div className="r-ur urdu">{i.titleUr}</div></td>
+                  <td style={{ textAlign: "right" }}>{i.packedQty} pcs</td>
+                  <td style={{ textAlign: "right" }}>{i.custom != null ? <em>custom</em> : money(i.unitPrice)}</td>
+                  <td style={{ textAlign: "right" }}>{money(i.packedQty * i.unitPrice)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="r-totals r-packed">
+            <div><span>Packed Subtotal</span><span>{money(totalPackedCost)}</span></div>
+          </div>
+        </>
+        }
         <div className="r-foot">Thank you!</div>
-        <div className="r-order-id">Bill No. {billNo(order.id)}</div>
+        <div className="r-order-id">Bill No. {order.billNo}</div>
       </div>
 
       {order.notes && (
@@ -143,6 +181,23 @@ function ReceiptContent({ orderId }) {
       )}
 
       {!cancelled && (
+         order.status === "packing" ? (
+              <button
+                className="btn green"
+                disabled={deliverPackedMut.isPending}
+                onClick={() => {
+                  const yesCreateNew = confirm(
+                    "Create a New order for remaining items?"
+                  );
+
+                  deliverPackedMut.mutate(yesCreateNew);
+                }}
+              >
+                {deliverPackedMut.isPending
+                  ? <><span className="btn-spinner"></span> Delivering..</>
+                  : "Deliver Packed Items"}
+              </button>
+            ):
         <div style={{ marginTop: 16 }}>
           <div className="eyebrow" style={{ marginBottom: 8 }}>Bill status</div>
           <div className="status-chips">
@@ -160,7 +215,7 @@ function ReceiptContent({ orderId }) {
                 </button>
               );
             })}
-            {wa_btn && <button className="status-chip-wa" onClick={() =>{ saveMut.mutate( order.customer.replace("user",""))} }>Confirm Whatsapp Order</button>}
+           
           </div>
         </div>
       )}

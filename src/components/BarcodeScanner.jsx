@@ -1,147 +1,428 @@
 import { useEffect, useRef, useState } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 
-/* Tries the native BarcodeDetector API first (fast, no download, works offline
-   on supported browsers). Falls back to the ZXing library, lazy-loaded from a
-   CDN only when needed. If the camera itself isn't available, falls back to a
-   manual numeric-entry field so scanning is never a dead end. */
-export default function BarcodeScanner({ onScanned, onClose }) {
+export default function BarcodeScanner({
+  onScanned,
+  onClose,
+  products = [],
+}) {
   const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const rafRef = useRef(null);
-  const detectorRef = useRef(null);
-  const zxingReaderRef = useRef(null);
-  const activeRef = useRef(true);
 
-  const [status, setStatus] = useState("Starting camera…");
-  const [manual, setManual] = useState(false);
-  const [manualValue, setManualValue] = useState("");
+  // ZXing controls returned by decodeFromVideoElement()
+  const controlsRef = useRef(null);
+
+  // Camera stream
+  const streamRef = useRef(null);
+  const trackRef = useRef(null);
+  const scanningRef = useRef(false);
+
+  // Prevent duplicate scans
+  const lastScanRef = useRef({
+    code: null,
+    time: 0,
+  });
+
+  const feedbackTimerRef = useRef(null);
+
+  const [error, setError] = useState("");
+  const [torchOn, setTorchOn] = useState(false);
+  const [feedback, setFeedback] = useState(null);
 
   useEffect(() => {
-    activeRef.current = true;
-    start();
+    startScanner();
+
     return () => {
-      activeRef.current = false;
-      stop();
+      clearTimeout(feedbackTimerRef.current);
+      stopScanner();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function start() {
-    stop();
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus("Camera not supported on this device — enter the code manually.");
-      setManual(true);
-      return;
-    }
+  async function startScanner() {
     try {
-      streamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
-    } catch {
-      setStatus("Camera permission denied — enter the code manually.");
-      setManual(true);
-      return;
-    }
-    const video = videoRef.current;
-    if (!video) return;
-    video.srcObject = streamRef.current;
-    try { await video.play(); } catch {}
-    setStatus("Point the camera at a barcode");
+      setError("");
 
-    if ("BarcodeDetector" in window) {
-      try {
-        detectorRef.current = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"] });
-        scanLoopNative();
+      if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
+        setError(
+          "Camera access is not supported by this browser."
+        );
         return;
-      } catch {
-        /* fall through to ZXing */
+      }
+
+      /*
+       * Get camera ourselves so we can also support torch.
+       */
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: {
+            ideal: "environment",
+          },
+        },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+
+      const track = stream.getVideoTracks()[0];
+
+      trackRef.current = track;
+
+      /*
+       * Give the stream to the video.
+       *
+       * Do NOT call video.play() manually here.
+       */
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+
+      /*
+       * Create ZXing reader.
+       */
+      const reader = new BrowserMultiFormatReader();
+
+      /*
+       * ZXing controls the decoding process.
+       *
+       * IMPORTANT:
+       * save the returned controls object.
+       */
+      const controls = await reader.decodeFromVideoElement(
+        videoRef.current,
+        (result, error) => {
+
+          // Ignore barcode results while showing feedback
+          if (scanningRef.current) {
+            return;
+          }
+
+          if (result) {
+            const code = result.getText()?.trim();
+
+            if (code) {
+              processBarcode(code);
+            }
+          }
+
+          /*
+           * NotFoundException is normal while scanning.
+           *
+           * Do NOT display it as an error.
+           */
+        }
+      );
+
+      controlsRef.current = controls;
+    } catch (err) {
+      console.error("Scanner error:", err);
+
+      if (err?.name === "NotAllowedError") {
+        setError(
+          "Camera permission was denied. Please allow camera access."
+        );
+      } else if (err?.name === "NotFoundError") {
+        setError(
+          "No camera was found on this device."
+        );
+      } else {
+        setError(
+          "Camera could not be started. Please try again."
+        );
       }
     }
-    setStatus("Loading scanner…");
-    try {
-      await loadZXing();
-      startZXing();
-    } catch {
-      setStatus("Couldn't load the scanner — enter the code manually.");
-      setManual(true);
+  }
+
+  function processBarcode(code) {
+    if (scanningRef.current) {
+      return;
+    }
+
+
+    const now = Date.now();
+
+
+    /*
+     * Prevent the same barcode from being scanned
+     * repeatedly while it remains in front of camera.
+     */
+    if (
+      lastScanRef.current.code === code &&
+      now - lastScanRef.current.time < 1500
+    ) {
+      return;
+    }
+
+    lastScanRef.current = {
+      code,
+      time: now,
+    };
+
+    scanningRef.current = true;
+    /*
+     * Find product.
+     */
+    const product = products.find(
+      (p) =>
+        String(p.barcode).trim() ===
+        String(code).trim()
+    );
+
+    /*
+     * Vibrate on successful scan.
+     */
+    if (navigator.vibrate) {
+      navigator.vibrate(80);
+    }
+
+    if (product) {
+      /*
+       * Add product to cart.
+       *
+       * NewBill handles the actual cart update.
+       */
+      onScanned(code);
+
+      /*
+       * Show product feedback.
+       */
+      showSuccess(product, code);
+    } else {
+      /*
+       * Barcode scanned but product doesn't exist.
+       */
+      showNotFound(code);
     }
   }
 
-  function stop() {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
-    if (zxingReaderRef.current) { try { zxingReaderRef.current.reset(); } catch {} zxingReaderRef.current = null; }
-    if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; }
-  }
 
-  function scanLoopNative() {
-    if (!activeRef.current || !videoRef.current) return;
-    detectorRef.current
-      .detect(videoRef.current)
-      .then((codes) => {
-        if (codes && codes.length) handleCode(codes[0].rawValue);
-        else if (activeRef.current) rafRef.current = requestAnimationFrame(scanLoopNative);
-      })
-      .catch(() => { if (activeRef.current) rafRef.current = requestAnimationFrame(scanLoopNative); });
-  }
+  function showSuccess(product, code) {
+    clearTimeout(feedbackTimerRef.current);
 
-  function loadZXing() {
-    return new Promise((resolve, reject) => {
-      if (window.ZXing) return resolve();
-      const s = document.createElement("script");
-      s.src = "https://unpkg.com/@zxing/[email protected]/umd/index.min.js";
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("ZXing failed to load"));
-      document.head.appendChild(s);
+    setFeedback({
+      type: "success",
+      product,
+      code,
     });
+
+    /*
+     * Show product for exactly ~2 second.
+     */
+    feedbackTimerRef.current = setTimeout(() => {
+      setFeedback(null);
+      scanningRef.current = false;
+    }, 2000);
   }
 
-  function startZXing() {
-    zxingReaderRef.current = new window.ZXing.BrowserMultiFormatReader();
-    setStatus("Point the camera at a barcode");
-    zxingReaderRef.current.decodeFromVideoElement(videoRef.current, (result) => {
-      if (result) handleCode(result.getText());
-    }).catch(() => {});
+  function showNotFound(code) {
+    clearTimeout(feedbackTimerRef.current);
+
+    setFeedback({
+      type: "error",
+      code,
+    });
+
+    feedbackTimerRef.current = setTimeout(() => {
+      setFeedback(null);
+      scanningRef.current = false;
+    }, 2000);
   }
 
-  function handleCode(code) {
-    onScanned(String(code).trim());
-    setStatus(`✓ Scanned ${code}`);
-    if (detectorRef.current && activeRef.current) {
-      setTimeout(() => { if (activeRef.current) scanLoopNative(); }, 900);
+  function stopScanner() {
+    /*
+     * Stop ZXing decoding.
+     */
+    try {
+      controlsRef.current?.stop();
+    } catch (err) {
+      console.error("Error stopping ZXing:", err);
+    }
+
+    controlsRef.current = null;
+
+    /*
+     * Stop camera.
+     */
+    if (streamRef.current) {
+      streamRef.current
+        .getTracks()
+        .forEach((track) => track.stop());
+
+      streamRef.current = null;
+    }
+
+    trackRef.current = null;
+
+    /*
+     * Detach video stream.
+     */
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setTorchOn(false);
+  }
+
+  async function toggleTorch() {
+    const track = trackRef.current;
+
+    if (!track) return;
+
+    try {
+      const capabilities = track.getCapabilities?.();
+
+      if (!capabilities?.torch) {
+        return;
+      }
+
+      const next = !torchOn;
+
+      await track.applyConstraints({
+        advanced: [
+          {
+            torch: next,
+          },
+        ],
+      });
+
+      setTorchOn(next);
+    } catch (err) {
+      console.error(
+        "Torch is not supported:",
+        err
+      );
     }
   }
 
-  function submitManual() {
-    const val = manualValue.trim();
-    if (!val) return;
-    handleCode(val);
-    setManualValue("");
+  function closeScanner() {
+    stopScanner();
+    onClose?.();
   }
 
   return (
-    <div className="scanner open" style={scannerStyle}>
-      <button className="scanner-close" style={closeBtnStyle} onClick={onClose}>×</button>
-      <video ref={videoRef} playsInline muted style={{ flex: 1, width: "100%", objectFit: "cover", background: "#000" }} />
-      <div style={frameStyle} />
-      <div style={statusStyle}>{status}</div>
-      {manual && (
-        <div style={manualWrapStyle}>
-          <input
-            type="text"
-            inputMode="numeric"
-            placeholder="Enter barcode number"
-            value={manualValue}
-            onChange={(e) => setManualValue(e.target.value)}
-            style={{ flex: 1, padding: "12px 14px", borderRadius: 12, border: "none", fontSize: 15 }}
-          />
-          <button onClick={submitManual} style={{ padding: "12px 18px", borderRadius: 12, background: "var(--brass)", color: "#fff", fontWeight: 800, border: "none" }}>Add</button>
+    <div className="barcode-scanner">
+
+      {/* CAMERA */}
+      <video
+        ref={videoRef}
+        className="barcode-video"
+        autoPlay
+        muted
+        playsInline
+      />
+
+      {/* SCANNER FRAME */}
+      <div className="scanner-overlay">
+        <div className="scanner-frame">
+          <div className="scanner-laser" />
+        </div>
+      </div>
+
+      {/* TOP BAR */}
+      <div className="scanner-top">
+
+        <div>
+          <h2>Scan Barcode</h2>
+
+          <p>
+            Point camera at a product barcode
+          </p>
+        </div>
+
+        <button
+          type="button"
+          className={`torch-btn ${torchOn ? "active" : ""
+            }`}
+          onClick={toggleTorch}
+        >
+          🔦
+        </button>
+
+      </div>
+
+      {/* CAMERA ERROR */}
+      {error && (
+        <div className="scanner-error">
+          <div style={{ fontSize: 40 }}>
+            📷
+          </div>
+
+          <p>{error}</p>
         </div>
       )}
+
+      {/* SCAN FEEDBACK */}
+      {feedback && (
+        <div className="scanner-feedback">
+
+          {feedback.type === "success" ? (
+            <>
+              <div className="scanner-success-icon">
+                ✓
+              </div>
+
+              <div className="scanner-product">
+
+                {/* {feedback.product.img && (
+                  <img
+                    src={feedback.product.img}
+                    alt=""
+                  />
+                )} */}
+
+                <div>
+
+                  <div className="scanner-added">
+                    Added to cart
+                  </div>
+
+                  <div className="scanner-product-title">
+                    {feedback.product.titleEn}
+                  </div>
+                  <div className="scanner-product-title">
+                    {feedback.product.titleUr}
+                  </div>
+
+                  <div className="scanner-code">
+                    {feedback.code}
+                  </div>
+
+                </div>
+
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="scanner-error-icon">
+                !
+              </div>
+
+              <div className="scanner-not-found">
+                Product not found
+              </div>
+
+              <div className="scanner-code">
+                {feedback.code}
+              </div>
+            </>
+          )}
+
+        </div>
+      )}
+
+      {/* BOTTOM */}
+      <div className="scanner-bottom">
+
+        <button
+          type="button"
+          onClick={closeScanner}
+        >
+          Close scanner
+        </button>
+
+      </div>
+
     </div>
   );
 }
-
-const scannerStyle = { position: "fixed", inset: 0, zIndex: 80, background: "#000", maxWidth: 480, margin: "0 auto", display: "flex", flexDirection: "column" };
-const closeBtnStyle = { position: "absolute", top: "calc(14px + env(safe-area-inset-top,0))", right: 16, zIndex: 5, width: 40, height: 40, borderRadius: "50%", background: "rgba(255,255,255,.18)", color: "#fff", fontSize: 26, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" };
-const frameStyle = { position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: "78%", maxWidth: 320, height: 120, border: "3px solid var(--brass)", borderRadius: 14, boxShadow: "0 0 0 999px rgba(0,0,0,.35)", pointerEvents: "none" };
-const statusStyle = { position: "absolute", bottom: 110, left: 16, right: 16, textAlign: "center", color: "#fff", fontSize: 14, fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,.6)" };
-const manualWrapStyle = { position: "absolute", left: 16, right: 16, bottom: 24, display: "flex", gap: 8 };

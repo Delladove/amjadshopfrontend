@@ -94,7 +94,8 @@ export default function CategoryDetail() {
                   }}
                 >
                   <div className="img" style={{ backgroundImage: p.img ? `url('${p.img}')` : "none" }}>
-                    {p.shared && <span className="pill shared" style={{ position: "absolute", top: 8, left: 8 }}>Shared</span>}
+                    {p.shared &&  <span className="pill shared" style={{ position: "absolute", top: 8, left: 8 }}>Shared</span>}
+                    {staged.has(p.id) && <div class="checkmark"><span class="tick">✓</span></div> }
                   </div>
                   <div className="body">
                     <div className="t-en">{p.titleEn}</div>
@@ -208,19 +209,20 @@ function UploadSheet({ catId, onClose, onSaved }) {
   });
 
   const onSubmit = async (data) => {
-    if (imgs.length === 0) {
-      toast("Please upload at least one photo");
-      return;
-    }
+    // if (imgs.length === 0) {
+    //   toast("Please upload at least one photo");
+    //   return;
+    // }
     setDataSubmitted(true);
     try {
-      const urls = await Promise.all(
-        imgs.map((img) => uploadFile(img.file))
-      );
+      // const urls = await Promise.all(
+      //   imgs.map((img) => uploadFile(img.file))
+      // );
 
       await createMut.mutateAsync({
         ...data,
-        imgs: urls,
+        // imgs: urls,
+        imgs: ["https://duaazure5096.blob.core.windows.net/container1/DuGPFAeieHjnMbEhqM9VQ.webp"],
       });
       
       toast("Product created");

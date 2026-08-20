@@ -11,4 +11,15 @@ export const productsApi = {
   update: (id, data) => api.put(`/products/${id}`, data),
   share: (id) => api.post(`/products/${id}/share`),
   remove: (id) => api.del(`/products/${id}`),
+  getShared: (limit, cursor) => {
+  const params = new URLSearchParams();
+
+  params.set("limit", limit);
+
+  if (cursor) {
+    params.set("cursor", cursor);
+  }
+
+  return api.get(`/products/shared?${params.toString()}`);
+}
 };

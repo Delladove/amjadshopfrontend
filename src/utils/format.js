@@ -18,6 +18,7 @@ export function billNo(id) {
 export const BILL_STATUS_INFO = {
   new: { label: "New", color: "var(--muted)" },
   packed: { label: "Packed", color: "#b8860b" },
+  packing: {label: "Packing", color: "var(--whatsapp)"},
   delivered: { label: "Delivered", color: "var(--teal)" },
   cancelled: { label: "Cancelled", color: "var(--danger)" },
 };

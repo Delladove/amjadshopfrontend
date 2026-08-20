@@ -92,9 +92,9 @@ export default function NewBill() {
   function bump(id, delta) {
     setCart((prev) => {
       const n = (prev[id] || 0) + delta;
-      console.log("all prev", prev);
+      // console.log("all prev", prev);
       const next = { ...prev };
-      console.log("all", next);
+      // console.log("all", next);
       if (n < 1) {
         delete next[id];
         if (expanded == id)
@@ -138,7 +138,7 @@ export default function NewBill() {
       //       };
       //     }),
       // })
-      ordersApi.create({
+      return ordersApi.create({
         billType,
         ...data,
         cargo,
@@ -183,13 +183,15 @@ export default function NewBill() {
     setCargoOpen(false);
   }
   const submitOrder = (data) => {
-    console.log("Submitting order with data:", data);
+    // console.log("Submitting order with data:", data);
 
     if (data.discount > subtotal) {
       setError("discount", {
         type: "manual",
         message: "Discount cannot exceed subtotal",
-      });
+      },
+        { shouldFocus: true, }
+      );
       toast("Discount cannot exceed subtotal");
       return;
     }
@@ -198,7 +200,9 @@ export default function NewBill() {
       setError("paidNow", {
         type: "manual",
         message: "Amount received cannot exceed total",
-      });
+      },
+        { shouldFocus: true, }
+      );
       toast("Amount received cannot exceed total");
       return;
     }
@@ -257,7 +261,13 @@ export default function NewBill() {
         {cartCount > 0 && <><span className="os-total">{money(total)}</span><span className="os-arrow">›</span></>}
       </div>
 
-      {scannerOpen && <BarcodeScanner onScanned={handleScanned} onClose={() => setScannerOpen(false)} />}
+      {scannerOpen && (
+        <BarcodeScanner
+          products={products}
+          onScanned={handleScanned}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
 
       {checkoutOpen && (
         <div className="sheet-bg open" onClick={() => setCheckoutOpen(false)}>
@@ -296,13 +306,13 @@ export default function NewBill() {
                 </div>
                 <div className="field" style={{ marginTop: 10 }}>
                   <label>Discount <span className="hint">(optional · flat amount off the bill)</span></label>
-                  <input type="number" min="0" {...register("discount")} placeholder="0" />
+                  <input className={errors.discount ? "error-border" : ""} type="number" min="0" {...register("discount")} placeholder="0" />
                   {errors.discount && <p className="error">{errors.discount.message}</p>}
                 </div>
                 <div className="order-total-bar"><span>Total</span><span>{money(total)}</span></div>
                 <div className="field" style={{ marginTop: 2 }}>
                   <label>Amount received now <span className="hint">(editable — leave as full total, or enter a partial payment)</span></label>
-                  <input type="number"
+                  <input className={errors.paidNow ? "error-border" : ""} type="number"
                     {...register("paidNow", {
                       onChange: () => setPaidTouched(true),
                     })}
@@ -318,22 +328,22 @@ export default function NewBill() {
                 <div className="co-section-title">👤 Customer details</div>
                 <div className="field">
                   <label>Customer name</label>
-                  <input type="text" {...register("customer")} placeholder="e.g. Ahmed Traders" />
+                  <input type="text" className={errors.customer ? "error-border" : ""}  {...register("customer")} placeholder="e.g. Ahmed Traders" />
                   {errors.customer && <p className="error">{errors.customer.message}</p>}
                 </div>
                 <div className="field">
                   <div className="two">
                     <div>
                       <label>Phone </label>
-                      <input type="tel" {...register("phone")} placeholder="03001233907" />
+                      <input className={errors.phone ? "error-border" : ""} type="tel" {...register("phone")} placeholder="03001233907" />
                     </div>
                     <div>
                       <label>City </label>
-                      <input type="text" {...register("city")} placeholder="e.g. Lahore" />
+                      <input type="text" className={errors.city ? "error-border" : ""} {...register("city")} placeholder="e.g. Lahore" />
                     </div>
                   </div>
                   {errors.phone && <p className="error">{errors.phone.message}</p>}
-                  {errors.city && <p className="error">{errors.city.message}</p>}
+                  {errors.city && <p className="error">|| {errors.city.message}</p>}
                 </div>
                 <button className="cargo-btn" onClick={() => setCargoOpen(true)}>
                   <span className="cargo-ic">🚚</span>
@@ -415,11 +425,11 @@ function ProductPickTile({ product: p, ext, qty, onTap, onBump, setCart, setExpa
               <div className="ord-stepper">
                 <button onClick={(e) => { e.stopPropagation(); onBump(-1) }}>−</button>
                 <input className="ord-sets-num" type="number" value={temporary} onChange={(e) => {
-                  console.log("change", e.target.value);
+                  // console.log("change", e.target.value);
                   e.stopPropagation();
                   setTemporary(e.target.value);
                 }} onBlur={() => {
-                  console.log("blur", temporary);
+                  // console.log("blur", temporary);
                   const n = parseInt(temporary, 10);
                   if (!isNaN(n) && n >= 1) {
                     setCart((prev) => ({ ...prev, [p.id]: n }));
@@ -431,7 +441,7 @@ function ProductPickTile({ product: p, ext, qty, onTap, onBump, setCart, setExpa
                 <button onClick={(e) => { e.stopPropagation(); onBump(1); }}>＋</button>
               </div>
               <div className="ord-pcs-lbl" >{qty}pcs</div>
-              <button className="ord-done-btn" onClick={(e) => { console.log("click"); e.stopPropagation(); setExpanded(null) }} >Done</button>
+              <button className="ord-done-btn" onClick={(e) => { e.stopPropagation(); setExpanded(null) }} >Done</button>
             </div>
           ) :
             (qty > 0 && <div className="ord-added"><span className="ord-added-badge">{qty} pcs</span></div>)}

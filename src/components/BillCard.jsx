@@ -1,16 +1,23 @@
 import { useNavigate } from "react-router-dom";
 import { money, dateLabel, billNo, BILL_STATUS_INFO } from "../utils/format";
 import { openReceiptSheet } from "./ReceiptSheet.jsx";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function BillCard({ order }) {
+  const qc = useQueryClient();
+  // console.log("orderin bill", order)
   const pieces = order.items.reduce((a, i) => a + (i.qty || 0), 0);
   const st = BILL_STATUS_INFO[order.status] || BILL_STATUS_INFO.new;
   const typeTag = order.billType === "Booking" ? "📅 Booking" : "🚶 Walk-in";
+  const handleOpenReceipt = () => {
+    qc.setQueryData(["order", order.id], order);
+    openReceiptSheet(order.id);
+  };
 
   return (
     <div
       className={`cat-card ${order.status === "cancelled" ? "cancelled-order" : ""}`}
-      onClick={() => openReceiptSheet(order.id)}
+      onClick={handleOpenReceipt}
     >
       <div className="accent" style={{ background: "var(--teal)" }} />
       <h3>{order.customer}</h3>

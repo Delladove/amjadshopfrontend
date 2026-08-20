@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import Topbar from "../components/Topbar.jsx";
 import { categoriesApi } from "../api/categories";
 import { productsApi } from "../api/products";
@@ -8,80 +8,130 @@ import { settingsApi } from "../api/misc";
 import { visitsApi } from "../api/misc";
 import { money } from "../utils/format";
 import LottieLoader from "../components/LottieLoader.jsx";
+import Skeleton from "../components/Skeleton.jsx";
 const backendapiUrl = import.meta.env.VITE_API_URL;
 
 export default function Customer() {
-  const [params] = useSearchParams();
-  const entrySlug = params.get("cat");
-  const { data: categories = [], isPending: categoryPending } = useQuery({ queryKey: ["categories"], queryFn: categoriesApi.list });
-  const { data: products = [] , isPending: productPending} = useQuery({ queryKey: ["products"], queryFn: () => productsApi.list() });
+
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: settingsApi.get });
   const [viewerProduct, setViewerProduct] = useState(null);
+  const loadMoreRef = useRef(null);
+  const {
+    data,
+    isPending: productPending,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage
+  } = useInfiniteQuery({
+    queryKey: ["shared-products"],
 
-  // dwell-time tracking — attribute the visit to whichever category the shared link pointed at
-  const visitRef = useRef({ catId: null, start: Date.now() });
+    queryFn: ({ pageParam }) =>
+      productsApi.getShared(6, pageParam),
+
+    initialPageParam: null,
+
+    getNextPageParam: (lastPage) =>
+      lastPage.hasMore
+        ? lastPage.nextCursor
+        : undefined
+  });
+
+  const products =
+    data?.pages.flatMap(
+      (page) => page.products
+    ) || [];
+
   useEffect(() => {
-    const entryCat = categories.find((c) => c.link_slug === entrySlug) || categories[0];
-    if (entryCat) visitRef.current = { catId: entryCat.id, start: Date.now() };
-    return () => {
-      const dwellMs = Date.now() - visitRef.current.start;
-      if (visitRef.current.catId && dwellMs >= 1000) {
-        visitsApi.log(visitRef.current.catId, visitRef.current.start, dwellMs);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categories.length]);
+    const element = loadMoreRef.current;
 
-  const usable = categories.filter((c) => products.some((p) => p.catId === c.id));
+    if (!element) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0].isIntersecting &&
+          hasNextPage &&
+          !isFetchingNextPage
+        ) {
+          fetchNextPage();
+        }
+      },
+      {
+        rootMargin: "300px"
+      }
+    );
+
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, [
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage
+  ]);
+
 
   return (
     <div id="app">
       <Topbar title="Amjad Magic Center" sub="Customer view" />
-  
-      {(categoryPending || productPending)? <LottieLoader/> :
-      (usable.length ? (
-        usable.map((cat) => {
-          const ps = products.filter((p) => p.catId === cat.id && p.titleEn && p.titleUr && p.unitPrice && p.shared > 0);
-          return (
-            <div key={cat.id}>
-              <div className="cust-hero">
-                <div className="name">{cat.name}</div>
-                <div className="tag">Tap any item to view &amp; order</div>
-              </div>
-              <div className="screen">
-                <div className="grid">
-                  {ps.map((p) => (
-                    <div className="prod" key={p.id} onClick={() => setViewerProduct(p)}>
-                      <div className="img" style={{ backgroundImage: p.img ? `url('${p.img}')` : "none" }} />
+
+      {(productPending) ? <LottieLoader /> :
+        (products.length ? (
+          <>
+            <div className="screen">
+              <div className="grid">
+                {products.map((p) => (
+                  <div key={p.id} className="prod" onClick={() => setViewerProduct(p)}>
+                    <div className="img" style={{ backgroundImage: p.img ? `url('${p.img}')` : "none" }} />
+                    <div className="body">
+                      <div className="t-en">{p.titleEn}</div>
+                      <div className="t-ur urdu">{p.titleUr}</div>
+                      <div className="price-row"><span className="retail">{money(p.unitPrice)}</span><span className="whole">unit price</span></div>
+                    </div>
+                  </div>
+                ))}
+                {isFetchingNextPage &&
+                  <>
+                    <div className="prod">
+                      <Skeleton className="img" />
                       <div className="body">
-                        <div className="t-en">{p.titleEn}</div>
-                        <div className="t-ur urdu">{p.titleUr}</div>
-                        <div className="price-row"><span className="retail">{money(p.unitPrice)}</span><span className="whole">unit price</span></div>
+                        <Skeleton className="t-en" height={14} />
+
+                        <Skeleton className="price-row" height={14} />
                       </div>
                     </div>
-                  ))}
-                </div>
+                    <div className="prod">
+                      <Skeleton className="img" />
+                      <div className="body">
+                        <Skeleton className="t-en" height={14} />
+
+                        <Skeleton className="price-row" height={14} />
+                      </div>
+                    </div>
+                  </>
+                }
+                <div ref={loadMoreRef} />
               </div>
             </div>
-          );
-        })) : (
-        <div className="screen"><div className="empty"><div className="big">🛍️</div><p>No products available yet.</p></div></div>
-      ))}
+          </>
+        ) : (
+          <div className="screen"><div className="empty"><div className="big">🛍️</div><p>No products available yet.</p></div></div>
+        ))}
 
       {viewerProduct && (
-        <ProductViewer product={viewerProduct} category={categories.find((c) => c.id === viewerProduct.catId)} waNumber={settings?.waNumber} onClose={() => setViewerProduct(null)} />
+        <ProductViewer product={viewerProduct} waNumber={settings?.waNumber} onClose={() => setViewerProduct(null)} />
       )}
     </div>
   );
 }
 
-function ProductViewer({ product, category, waNumber, onClose }) {
+function ProductViewer({ product, waNumber, onClose }) {
   const [photoIdx, setPhotoIdx] = useState(0);
   const photos = product.imgs && product.imgs.length ? product.imgs : product.img ? [product.img] : [];
 
   function order() {
     const msg = encodeURIComponent(
-      `${backendapiUrl}/api/products/product/${product.id}\n آپ کو کتنی مقدار چاہیے؟ \n\n-`
+      `${backendapiUrl}/share/${product.id}\n آپ کو کتنی مقدار چاہیے؟ \n\n-`
     );
     const url = waNumber ? `https://wa.me/${waNumber}?text=${msg}` : `https://wa.me/?text=${msg}`;
     window.open(url, "_blank");
